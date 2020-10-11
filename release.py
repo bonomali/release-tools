@@ -263,14 +263,16 @@ def tarball(source):
         checksum_xz.hexdigest(), int(os.path.getsize(xz)), xz))
 
     print('Signing tarballs')
-    print('List of available private keys:')
-    run_cmd(['gpg -K | grep -A 1 "^sec"'])
-    uid = input('Please enter key ID to use for signing: ')
+    uid = os.environ.get("GPG_KEY_FOR_RELEASE")
+    if not uid:
+        print('List of available private keys:')
+        run_cmd(['gpg -K | grep -A 1 "^sec"'])
+        uid = input('Please enter key ID to use for signing: ')
     os.system('gpg -bas -u ' + uid + ' ' + tgz)
     os.system('gpg -bas -u ' + uid + ' ' + xz)
 
 
-def export(tag):
+def export(tag, silent=False):
     make_dist(tag.text)
     print('Exporting tag:', tag.text)
     archivename = 'Python-%s' % tag.text
@@ -280,10 +282,10 @@ def export(tag):
     archivetempfile = '%s.tar' % archivename
     run_cmd(['git', 'archive', '--format=tar',
              '--prefix=%s/' % archivename,
-             '-o', archivetempfile, tag.gitname])
+             '-o', archivetempfile, tag.gitname], silent=silent)
     with pushd(tag.text):
         archivetempfile = '../%s' % archivetempfile
-        run_cmd(['tar', '-xf', archivetempfile])
+        run_cmd(['tar', '-xf', archivetempfile], silent=silent)
         os.unlink(archivetempfile)
         with pushd(archivename):
             # Touch a few files that get generated so they're up-to-date in
@@ -308,7 +310,7 @@ def export(tag):
                 docdist = build_docs()
 
             print('Using blurb to build Misc/NEWS')
-            run_cmd(["blurb", "merge"])
+            run_cmd(["blurb", "merge"], silent=silent)
 
             # Remove files we don't want to ship in tarballs.
             print('Removing VCS .*ignore, .git*, Misc/NEWS.d, et al')
@@ -322,7 +324,7 @@ def export(tag):
                     pass
 
             # Remove directories we don't want to ship in tarballs.
-            run_cmd(["blurb", "export"])
+            run_cmd(["blurb", "export"], silent=silent)
             for name in ('.azure-pipelines', '.git', '.github', '.hg'):
                 shutil.rmtree(name, ignore_errors=True)
 
@@ -340,8 +342,8 @@ def export(tag):
 
         with pushd(archivename):
             print('Zapping pycs')
-            run_cmd(["find . -depth -name '__pycache__' -exec rm -rf {} ';'"])
-            run_cmd(["find . -name '*.py[co]' -exec rm -f {} ';'"])
+            run_cmd(["find . -depth -name '__pycache__' -exec rm -rf {} ';'"], silent=silent)
+            run_cmd(["find . -name '*.py[co]' -exec rm -f {} ';'"], silent=silent)
 
         os.mkdir('src')
         tarball(archivename)
@@ -434,7 +436,7 @@ def make_tag(tag):
         print('It doesn\'t look like you didn\'t run "blurb release" yet.')
         if input('Are you sure you want to tag? (y/n) > ') not in ("y", "yes"):
             print("Aborting.")
-            return
+            return False
 
     # make sure we're on the correct branch
     if tag.patch > 0:
@@ -444,12 +446,15 @@ def make_tag(tag):
             print('It doesn\'t look like you\'re on the correct branch.')
             if input('Are you sure you want to tag? (y/n) > ').lower() not in ("y", "yes"):
                 print("Aborting.")
-                return
+                return False
     print('Signing tag')
-    print('List of available private keys:')
-    run_cmd(['gpg -K | grep -A 1 "^sec"'])
-    uid = input('Please enter key ID to use for signing: ')
+    uid = os.environ.get("GPG_KEY_FOR_RELEASE")
+    if not uid:
+        print('List of available private keys:')
+        run_cmd(['gpg -K | grep -A 1 "^sec"'])
+        uid = input('Please enter key ID to use for signing: ')
     run_cmd(['git', 'tag', '-s', '-u', uid, tag.gitname, '-m', 'Python ' + str(tag)], shell=False)
+    return True
 
 
 def done(tag):
