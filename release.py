@@ -33,16 +33,16 @@ def error(*msgs):
     sys.exit(1)
 
 
-def run_cmd(cmd, silent=False, shell=True):
+def run_cmd(cmd, silent=False, shell=True, **kwargs):
     if shell:
         cmd = SPACE.join(cmd)
     if not silent:
         print('Executing %s' % cmd)
     try:
         if silent:
-            subprocess.check_call(cmd, shell=shell, stdout=subprocess.PIPE)
+            subprocess.check_call(cmd, shell=shell, stdout=subprocess.PIPE, **kwargs)
         else:
-            subprocess.check_call(cmd, shell=shell)
+            subprocess.check_call(cmd, shell=shell, **kwargs)
     except subprocess.CalledProcessError:
         error('%s failed' % cmd)
 
@@ -362,7 +362,8 @@ def build_docs():
         sphinx_build = os.path.join(venv, 'bin', 'sphinx-build')
         blurb = os.path.join(venv, 'bin', 'blurb')
         with pushd('Doc'):
-            run_cmd(['make', 'dist', 'SPHINXBUILD=' + sphinx_build, 'BLURB=' + blurb])
+            run_cmd(['make', 'dist', 'SPHINXBUILD=' + sphinx_build, 'BLURB=' + blurb],
+                    env={**os.environ, "SPHINXOPTS": "-j10"})
             return os.path.abspath('dist')
 
 def upload(tag, username):

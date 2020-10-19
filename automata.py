@@ -14,7 +14,6 @@ RELEASE_REGEXP = re.compile(
 class FiniteStateMachine:
     def __init__(self, *, release=None, git_repo=None, first_state=None):
         dbfile = pathlib.Path.home() / ".python_release"
-        print(dbfile)
         self.db = shelve.open(str(dbfile), "c")
         if not self.db.get("finished"):
             self.db["finished"] = False

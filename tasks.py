@@ -22,6 +22,7 @@ from automata import FiniteStateMachine, Task
 
 DOWNLOADS_SERVER = "downloads.nyc1.psf.io"
 
+
 class ReleaseException(Exception):
     ...
 
@@ -125,11 +126,12 @@ class check_gpg_keys(Task):
         for index, key in enumerate(keys):
             print(f"{index} - {key['keyid']}: {key['uids']}")
         selected_key_index = int(input("Select one GPG key for release (by index):"))
-        selected_key = keys[selected_key_index]['keyid']
+        selected_key = keys[selected_key_index]["keyid"]
         os.environ["GPG_KEY_FOR_self.db['release']"] = selected_key
         if selected_key not in {key["keyid"] for key in keys}:
             raise ReleaseException("Invalid GPG key selected")
         self.db["gpg_key"] = selected_key
+        os.environ["GPG_KEY_FOR_RELEASE"] = self.db["gpg_key"]
 
     def next(self):
         return check_ssh_connection
@@ -140,6 +142,16 @@ class check_git(Task):
 
     def run(self):
         return shutil.which("git")
+
+    def next(self):
+        return check_latexmk
+
+
+class check_latexmk(Task):
+    description = "Checking latexmk is available"
+
+    def run(self):
+        return shutil.which("latexmk")
 
     def next(self):
         return check_make
@@ -379,28 +391,44 @@ class upload_files_to_server(Task):
         client.set_missing_host_key_policy(paramiko.WarningPolicy)
         client.connect(DOWNLOADS_SERVER, port=22)
 
-        destination = f"/home/psf-users/pablogsal/{self.db['release']}"
+        destination = pathlib.Path(f"/home/psf-users/pablogsal/{self.db['release']}")
         ftp_client = self.MySFTPClient.from_transport(client.get_transport())
 
         client.exec_command(f"rm -rf {destination}")
 
         with contextlib.suppress(OSError):
-            ftp_client.mkdir(destination)
+            ftp_client.mkdir(str(destination))
 
-        with alive_bar(
-            len(
-                tuple(
-                    pathlib.Path(self.db["git_repo"] / self.db["release"] / "src").glob(
-                        "**/*"
+        shutil.rmtree(
+            pathlib.Path(
+                self.db["git_repo"]
+                / self.db["release"]
+                / f"Python-{self.db['release']}"
+            ),
+            ignore_errors=True,
+        )
+
+        def upload_subdir(subdir):
+            with contextlib.suppress(OSError):
+                ftp_client.mkdir(str(destination / subdir))
+            with alive_bar(
+                len(
+                    tuple(
+                        pathlib.Path(
+                            self.db["git_repo"] / self.db["release"] / subdir
+                        ).glob("**/*")
                     )
                 )
-            )
-        ) as progress:
-            ftp_client.put_dir(
-                self.db["git_repo"] / self.db["release"] / "src",
-                f"/home/psf-users/pablogsal/{self.db['release']}",
-                progress=progress,
-            )
+            ) as progress:
+                ftp_client.put_dir(
+                    self.db["git_repo"] / self.db["release"] / subdir,
+                    str(destination / subdir),
+                    progress=progress,
+                )
+
+        upload_subdir("src")
+        if pathlib.Path(self.db["git_repo"] / self.db["release"] / "docs").exists():
+            upload_subdir("docs")
         ftp_client.close()
 
     def next(self):
@@ -426,7 +454,7 @@ class place_files_in_download_folder(Task):
                 raise ReleaseException(channel.recv_stderr(1000))
 
         execute_command(f"mkdir -p {destination}")
-        execute_command(f"cp {source}/* {destination}")
+        execute_command(f"cp {source}/src/* {destination}")
         execute_command(f"chgrp downloads {destination}")
         execute_command(f"chmod 775 {destination}")
         execute_command(f"find {destination} -type f -exec chmod 664 {{}} \;")
@@ -512,8 +540,9 @@ class wait_util_all_files_are_in_folder(Task):
 
 
 if __name__ == "__main__":
+    # NOTE: If you want to test this, change the repo and the_release variables
     repo = "/home/pablogsal/github/python/master"
-    the_release = "3.10.1a2"
+    the_release = "3.10.0a3"
     automata = FiniteStateMachine(git_repo=repo, release=the_release)
     if not automata.load_checkpoint():
         automata.current_task = check_git
